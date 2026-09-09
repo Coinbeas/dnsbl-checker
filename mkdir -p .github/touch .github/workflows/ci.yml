@@ -1,4 +1,4 @@
-name: DNSBL Checker CI
+name: DNSBL Checker CI/CD
 
 on:
   push:
@@ -9,44 +9,202 @@ on:
     branches:
       - main
 
+  schedule:
+    - cron: "0 2 * * *"
+
 permissions:
   contents: read
 
 jobs:
-  validate:
-    name: Validate Project
+
+  lint:
+    name: PHP Lint
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        php-version:
+          - "8.1"
+          - "8.2"
+          - "8.3"
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.2"
-          tools: composer
-
-      - name: Check PHP version
-        run: php -v
+          php-version: ${{ matrix.php-version }}
 
       - name: Validate PHP syntax
         run: |
-          php -l check.php
+          find . \
+            -name "*.php" \
+            -type f \
+            ! -path "./vendor/*" \
+            -exec php -l {} \;
+
+  frontend:
+    name: Validate Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Validate JavaScript
         run: |
-          node --check app.js
+          if [ -f "app.js" ]; then
+            node --check app.js
+          else
+            echo "app.js not found"
+            exit 1
+          fi
 
-      - name: Check required files
+      - name: Check required frontend files
         run: |
+          test -f index.html
+          test -f style.css
+          test -f app.js
+
+          echo "Frontend files validated."
+
+  structure:
+    name: Project Structure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify project
+        run: |
+          echo "DNSBL Checker"
+          echo "============="
+
           test -f index.html
           test -f style.css
           test -f app.js
           test -f check.php
 
-          echo "Required files found."
+          echo ""
+          echo "PHP files:"
+          find . -name "*.php" -type f ! -path "./vendor/*"
 
-      - name: Project validation complete
+          echo ""
+          echo "Frontend files:"
+          find . \( -name "*.html" -o -name "*.css" -o -name "*.js" \) -type f
+
+          echo ""
+          echo "Project structure OK."
+
+  security:
+    name: Basic Security Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check sensitive files
         run: |
-          echo "DNSBL Checker validation completed successfully."
+          if find . \
+            -name ".env" \
+            -o -name ".env.local" \
+            -o -name "*.key" \
+            -o -name "*.pem"; then
+
+            echo "Warning: sensitive files detected."
+          fi
+
+      - name: Check PHP syntax
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+
+      - name: PHP syntax scan
+        run: |
+          find . \
+            -name "*.php" \
+            -type f \
+            ! -path "./vendor/*" \
+            -exec php -l {} \;
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    needs:
+      - lint
+      - frontend
+      - structure
+      - security
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare build
+        run: |
+          mkdir -p build/dnsbl-checker
+
+          cp index.html build/dnsbl-checker/
+          cp style.css build/dnsbl-checker/
+          cp app.js build/dnsbl-checker/
+          cp check.php build/dnsbl-checker/
+
+          if [ -d "src" ]; then
+            cp -r src build/dnsbl-checker/
+          fi
+
+          if [ -f "README.md" ]; then
+            cp README.md build/dnsbl-checker/
+          fi
+
+          echo "Build prepared."
+
+      - name: Create archive
+        run: |
+          tar -czf \
+            build/dnsbl-checker.tar.gz \
+            -C build \
+            dnsbl-checker
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dnsbl-checker-build
+          path: build/dnsbl-checker.tar.gz
+
+  notify:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+
+    needs: build
+
+    if: always()
+
+    steps:
+      - name: Summary
+        run: |
+          echo "================================="
+          echo " DNSBL Checker CI/CD"
+          echo "================================="
+          echo ""
+          echo "Lint:       completed"
+          echo "Frontend:   completed"
+          echo "Structure:  completed"
+          echo "Security:   completed"
+          echo "Build:      completed"
+          echo ""
+          echo "Repository:"
+          echo "${{ github.repository }}"
+          echo ""
+          echo "Commit:"
+          echo "${{ github.sha }}"
