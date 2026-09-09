@@ -1,0 +1,189 @@
+const ipAddress = document.getElementById("ipAddress");
+const checkBtn = document.getElementById("checkBtn");
+
+const message = document.getElementById("message");
+const resultCard = document.getElementById("resultCard");
+
+const resultIP = document.getElementById("resultIP");
+const overallStatus = document.getElementById("overallStatus");
+
+const blacklistedCount = document.getElementById("blacklistedCount");
+const cleanCount = document.getElementById("cleanCount");
+const totalCount = document.getElementById("totalCount");
+
+const resultsBody = document.getElementById("resultsBody");
+
+function showMessage(text, type = "") {
+    message.textContent = text;
+    message.className = "message " + type;
+}
+
+function isValidIPv4(ip) {
+    const parts = ip.trim().split(".");
+
+    if (parts.length !== 4) {
+        return false;
+    }
+
+    return parts.every(part => {
+        if (!/^\d+$/.test(part)) {
+            return false;
+        }
+
+        const number = Number(part);
+        return number >= 0 && number <= 255;
+    });
+}
+
+function clearResults() {
+    resultCard.style.display = "none";
+    resultsBody.innerHTML = "";
+
+    resultIP.textContent = "";
+    overallStatus.textContent = "";
+    blacklistedCount.textContent = "0";
+    cleanCount.textContent = "0";
+    totalCount.textContent = "0";
+}
+
+function renderResults(data) {
+    resultCard.style.display = "block";
+
+    resultIP.textContent = data.ip || "-";
+
+    const summary = data.summary || {};
+
+    blacklistedCount.textContent =
+        summary.blacklisted ?? data.blacklisted ?? 0;
+
+    cleanCount.textContent =
+        summary.clean ?? data.clean ?? 0;
+
+    totalCount.textContent =
+        summary.total ?? data.total ?? 0;
+
+    overallStatus.textContent =
+        data.status || "UNKNOWN";
+
+    resultsBody.innerHTML = "";
+
+    const results = Array.isArray(data.results)
+        ? data.results
+        : [];
+
+    if (results.length === 0) {
+        resultsBody.innerHTML = `
+            <tr>
+                <td colspan="4">No DNSBL results found.</td>
+            </tr>
+        `;
+        return;
+    }
+
+    results.forEach(item => {
+        const row = document.createElement("tr");
+
+        const dnsbl = item.dnsbl || "-";
+        const blacklisted = Boolean(item.blacklisted);
+
+        row.innerHTML = `
+            <td>${escapeHTML(dnsbl)}</td>
+            <td class="${blacklisted ? "error" : "success"}">
+                ${blacklisted ? "LISTED" : "CLEAN"}
+            </td>
+            <td>${escapeHTML(
+                item.response === false || item.response == null
+                    ? "-"
+                    : String(item.response)
+            )}</td>
+            <td>${escapeHTML(
+                item.queryTime === false || item.queryTime == null
+                    ? "-"
+                    : String(item.queryTime)
+            )}</td>
+        `;
+
+        resultsBody.appendChild(row);
+    });
+}
+
+function escapeHTML(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+checkBtn.addEventListener("click", async () => {
+    const ip = ipAddress.value.trim();
+
+    clearResults();
+
+    if (!ip) {
+        showMessage("Please enter an IP address.", "error");
+        return;
+    }
+
+    if (!isValidIPv4(ip)) {
+        showMessage("Please enter a valid IPv4 address.", "error");
+        return;
+    }
+
+    checkBtn.disabled = true;
+    checkBtn.textContent = "Checking...";
+    showMessage("Checking DNSBL databases...", "");
+
+    try {
+        const response = await fetch("check.php", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            body: JSON.stringify({
+                ip: ip
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(
+                data.error || "DNSBL check failed."
+            );
+        }
+
+        renderResults(data);
+
+        if (data.status === "BLACKLISTED") {
+            showMessage(
+                "Warning: This IP is listed on one or more DNSBLs.",
+                "error"
+            );
+        } else {
+            showMessage(
+                "Good news: This IP is clean.",
+                "success"
+            );
+        }
+
+    } catch (error) {
+        console.error("DNSBL Error:", error);
+
+        showMessage(
+            error.message || "Unable to connect to the server.",
+            "error"
+        );
+    } finally {
+        checkBtn.disabled = false;
+        checkBtn.textContent = "Check IP";
+    }
+});
+
+ipAddress.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+        checkBtn.click();
+    }
+});
