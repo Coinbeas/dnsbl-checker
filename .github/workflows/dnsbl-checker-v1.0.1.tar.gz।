@@ -1,0 +1,10 @@
+- name: Create archive
+  run: |
+    tar -czf build/dnsbl-checker.tar.gz \
+      -C build dnsbl-checker
+
+- name: Upload build artifact
+  uses: actions/upload-artifact@v4
+  with:
+    name: dnsbl-checker-build
+    path: build/dnsbl-checker.tar.gz
