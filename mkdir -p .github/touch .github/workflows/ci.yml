@@ -1,0 +1,52 @@
+name: DNSBL Checker CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Project
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer
+
+      - name: Check PHP version
+        run: php -v
+
+      - name: Validate PHP syntax
+        run: |
+          php -l check.php
+
+      - name: Validate JavaScript
+        run: |
+          node --check app.js
+
+      - name: Check required files
+        run: |
+          test -f index.html
+          test -f style.css
+          test -f app.js
+          test -f check.php
+
+          echo "Required files found."
+
+      - name: Project validation complete
+        run: |
+          echo "DNSBL Checker validation completed successfully."
